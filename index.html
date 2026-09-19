@@ -2,518 +2,555 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FEM Frame Viewer</title>
-
 <style>
-    body {
-        margin: 0;
-        font-family: Arial, sans-serif;
-        background: #202124;
-        color: #eeeeee;
-    }
-
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Arial, sans-serif; background: #202124; color: #eeeeee; }
     .app {
-        width: 90%;
-        max-width: 1100px;
-        margin: 20px auto;
-    }
-
-    h1 {
-        font-size: 24px;
-        margin-bottom: 15px;
-    }
-
-    .toolbar {
+        height: 100vh;
+        height: 100dvh;
         display: flex;
-        align-items: center;
-        gap: 15px;
-        margin-bottom: 15px;
+        flex-direction: column;
+        gap: 8px;
+        padding: 12px 16px;
     }
-
-    .viewer {
-        height: 600px;
-        background: #111111;
-        border: 1px solid #555555;
-
-        display: flex;
-        align-items: center;
-        justify-content: center;
-
-        overflow: hidden;
+    .toolbar, .controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    h1 { font-size: 20px; margin: 0 auto 0 0; }
+    button, select, input { font: inherit; }
+    button, select { padding: 3px 12px; font-size: 14px; }
+    button { cursor: pointer; }
+    button:disabled { cursor: default; }
+    .viewer-grid {
+        position: relative;
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: minmax(0, 1fr);
+        gap: 8px;
     }
-
-    .viewer img {
-        max-width: 100%;
-        max-height: 100%;
-        object-fit: contain;
+    .viewer-grid[data-count="2"] { grid-template-columns: minmax(0, var(--left, 1fr)) minmax(0, var(--right, 1fr)); }
+    .viewer-grid[data-count="3"], .viewer-grid[data-count="4"] {
+        grid-template-columns: minmax(0, var(--left, 1fr)) minmax(0, var(--right, 1fr));
+        grid-template-rows: minmax(0, var(--top, 1fr)) minmax(0, var(--bottom, 1fr));
     }
-
-    .frame-info {
-        text-align: center;
-        margin: 15px 0 5px;
-        font-size: 18px;
-    }
-
-    #slider {
-        width: 100%;
-    }
-
-    .controls {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        gap: 10px;
-        margin-top: 15px;
-    }
-
-    button {
-        padding: 8px 18px;
-        font-size: 16px;
-        cursor: pointer;
-    }
-
-    select {
-        padding: 7px;
-        font-size: 15px;
-    }
-
-    .file-count {
-        color: #aaaaaa;
+    .splitter { position: absolute; z-index: 2; background: #555555; touch-action: none; user-select: none; }
+    .splitter:hover, .splitter:focus-visible { background: #8ab4f8; outline: 2px solid #8ab4f8; }
+    .splitter[hidden] { display: none; }
+    .splitter.vertical { top: 0; bottom: 0; width: 8px; cursor: col-resize; }
+    .splitter.horizontal { left: 0; right: 0; height: 8px; cursor: row-resize; }
+    .panel { min-width: 0; min-height: 0; display: flex; flex-direction: column; border: 1px solid #555555; }
+    .panel-header { overflow: hidden; flex-shrink: 0; display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 13px; }
+    .folder-label { white-space: nowrap; cursor: pointer; border: 1px solid #777777; padding: 3px 8px; }
+    .folder-label:focus-within { outline: 2px solid #8ab4f8; }
+    .folder-input { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+    .file-count { color: #bbbbbb; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .viewer { flex: 1; min-height: 0; position: relative; background: #111111; overflow: hidden; }
+    .viewer img { width: 100%; height: 100%; object-fit: contain; display: block; }
+    .viewer img[hidden], .placeholder[hidden], .panel[hidden] { display: none; }
+    .placeholder { position: absolute; inset: 0; display: grid; place-items: center; color: #aaaaaa; padding: 12px; text-align: center; }
+    .step-info { display: flex; justify-content: center; align-items: center; gap: 8px; font-size: 15px; }
+    #stepInput { width: 90px; padding: 2px 5px; }
+    #slider { width: 100%; margin: 0; }
+    .controls { justify-content: center; gap: 8px; }
+    .hint { color: #bbbbbb; font-size: 12px; }
+    @media (max-width: 600px) {
+        .app { padding: 8px; }
+        h1 { font-size: 16px; }
+        .panel-header { flex-wrap: wrap; gap: 4px; }
+        .hint { display: none; }
     }
 </style>
 </head>
-
 <body>
-
-<div class="app">
-
-    <h1>FEM Frame Viewer</h1>
-
-    <div class="toolbar">
-
-        <label>
-            画像フォルダ：
-            <input
-                type="file"
-                id="folderInput"
-                webkitdirectory
-                multiple
-            >
-        </label>
-
-        <span id="fileCount" class="file-count">
-            No images
-        </span>
-
-    </div>
-
-
-    <div class="viewer">
-        <img id="frameImage" alt="画像を選択してください">
-    </div>
-
-
-    <div class="frame-info">
-        Frame
-        <span id="currentFrame">0</span>
-        /
-        <span id="totalFrames">0</span>
-    </div>
-
-
-    <input
-        type="range"
-        id="slider"
-        min="0"
-        max="0"
-        value="0"
-        disabled
-    >
-
-
-    <div class="controls">
-
-        <button id="firstButton">|◀</button>
-
-        <button id="prevButton">◀</button>
-
-        <button id="playButton">▶ Play</button>
-
-        <button id="nextButton">▶</button>
-
-        <button id="lastButton">▶|</button>
-
-
-        <label>
-            Speed:
-            <select id="fpsSelect">
-                <option value="1">1 FPS</option>
-                <option value="2">2 FPS</option>
-                <option value="5">5 FPS</option>
-                <option value="10" selected>10 FPS</option>
-                <option value="20">20 FPS</option>
-                <option value="30">30 FPS</option>
+<main class="app">
+    <header class="toolbar">
+        <h1>FEM Frame Viewer</h1>
+        <label>表示数:
+            <select id="viewCount">
+                <option value="1">1</option><option value="2">2</option>
+                <option value="3">3</option><option value="4">4</option>
             </select>
         </label>
-
+        <button id="resetLayout" title="枠の境界線はドラッグで調整できます">均等に戻す</button>
+        <button id="saveSession" title="画像データも含めて保存します">構成を保存（画像込み）</button>
+        <button id="loadSession">構成を読み込む</button>
+        <input id="sessionInput" type="file" accept=".json,application/json" hidden>
+        <span id="sessionStatus" class="hint" role="status" aria-live="polite"></span>
+    </header>
+    <div id="viewerGrid" class="viewer-grid" data-count="1"></div>
+    <div class="step-info">
+        <label for="stepInput">Step</label>
+        <input id="stepInput" type="number" min="1" max="0" step="1" value="0" disabled aria-describedby="stepHint">
+        <span>/ <span id="totalFrames">0</span></span>
+        <span id="stepHint" class="hint">数字を入力して Enter</span>
     </div>
-
-</div>
-
-
+    <input type="range" id="slider" min="0" max="0" value="0" disabled aria-label="Step">
+    <div class="controls">
+        <button id="firstButton" aria-label="先頭の Step">|◀</button>
+        <button id="prevButton" aria-label="前の Step">◀</button>
+        <button id="playButton">▶ Play</button>
+        <button id="nextButton" aria-label="次の Step">▶</button>
+        <button id="lastButton" aria-label="最後の Step">▶|</button>
+        <label>Speed:
+            <select id="fpsSelect">
+                <option value="1">1 FPS</option><option value="2">2 FPS</option>
+                <option value="5">5 FPS</option><option value="10" selected>10 FPS</option>
+                <option value="20">20 FPS</option><option value="30">30 FPS</option>
+                <option value="60">60 FPS</option>
+            </select>
+        </label>
+        <label><input id="loopCheckbox" type="checkbox"> Loop</label>
+    </div>
+</main>
 <script>
-
-const folderInput = document.getElementById("folderInput");
-const frameImage = document.getElementById("frameImage");
 const slider = document.getElementById("slider");
-
-const currentFrameText =
-    document.getElementById("currentFrame");
-
-const totalFramesText =
-    document.getElementById("totalFrames");
-
-const fileCount =
-    document.getElementById("fileCount");
-
-const playButton =
-    document.getElementById("playButton");
-
-const fpsSelect =
-    document.getElementById("fpsSelect");
-
-
-let images = [];
-
+const stepInput = document.getElementById("stepInput");
+const totalFramesText = document.getElementById("totalFrames");
+const playButton = document.getElementById("playButton");
+const fpsSelect = document.getElementById("fpsSelect");
+const loopCheckbox = document.getElementById("loopCheckbox");
+const viewCount = document.getElementById("viewCount");
+const viewerGrid = document.getElementById("viewerGrid");
 let currentFrame = 0;
-
 let playing = false;
-
 let timer = null;
 
-
-/* -------------------------
-   フォルダ読み込み
-------------------------- */
-
-folderInput.addEventListener("change", function(event) {
-
-    stop();
-
-    // 画像ファイルのみ取得
-    images = Array.from(event.target.files)
-        .filter(file =>
-            file.type.startsWith("image/")
-        );
-
-
-    // ファイル名を自然順でソート
-    images.sort((a, b) =>
-        a.name.localeCompare(
-            b.name,
-            undefined,
-            {
-                numeric: true,
-                sensitivity: "base"
-            }
-        )
-    );
-
-
-    if (images.length === 0) {
-
-        fileCount.textContent =
-            "画像が見つかりません";
-
-        return;
-    }
-
-
-    currentFrame = 0;
-
-
-    slider.disabled = false;
-
-    slider.min = 0;
-
-    slider.max = images.length - 1;
-
-    slider.value = 0;
-
-
-    totalFramesText.textContent =
-        images.length;
-
-    fileCount.textContent =
-        images.length + " images";
-
-
-    showFrame(0);
-
+// 各パネルに独立した画像列と表示用 URL を保持する。
+const panels = Array.from({ length: 4 }, function(_, index) {
+    const element = document.createElement("section");
+    element.className = "panel";
+    element.hidden = index > 0;
+    element.setAttribute("aria-label", "画像 " + (index + 1));
+    element.innerHTML = `
+        <div class="panel-header">
+            <label class="folder-label">画像 ${index + 1}：フォルダ選択
+                <input class="folder-input" type="file" webkitdirectory multiple aria-label="画像 ${index + 1} のフォルダ">
+            </label>
+            <span class="file-count">No images</span>
+        </div>
+        <div class="viewer">
+            <img hidden alt="">
+            <span class="placeholder">画像フォルダを選択してください</span>
+        </div>`;
+    viewerGrid.appendChild(element);
+    const panel = {
+        element,
+        image: element.querySelector("img"),
+        message: element.querySelector(".placeholder"),
+        count: element.querySelector(".file-count"),
+        folder: "",
+        images: [],
+        file: null,
+        url: null,
+        pending: null
+    };
+    element.querySelector("input").addEventListener("change", function(event) {
+        const selected = Array.from(event.target.files)
+            .filter(file => file.type.startsWith("image/"))
+            .sort((a, b) => a.name.localeCompare(b.name, undefined, {
+                numeric: true, sensitivity: "base"
+            }));
+        stop();
+        clearImage(panel);
+        panel.images = selected;
+        const first = panel.images[0];
+        const folder = first ? (first.webkitRelativePath || first.name).split("/")[0] : "";
+        panel.folder = folder;
+        updateFileCount(panel, "画像が見つかりません");
+        updateTimeline();
+    });
+    return panel;
 });
 
+let layout = { x: 0.5, y: 0.5 };
+const splitters = ["x", "y"].map(function(axis) {
+    const handle = document.createElement("div");
+    handle.className = "splitter " + (axis === "x" ? "vertical" : "horizontal");
+    handle.tabIndex = 0;
+    handle.setAttribute("role", "separator");
+    handle.setAttribute("aria-orientation", axis === "x" ? "vertical" : "horizontal");
+    handle.setAttribute("aria-label", axis === "x" ? "左右の表示幅" : "上下の表示高さ");
+    handle.setAttribute("aria-valuemin", "20");
+    handle.setAttribute("aria-valuemax", "80");
+    handle.title = "ドラッグで調整・矢印キーで微調整・ダブルクリックで均等に戻す";
+    viewerGrid.appendChild(handle);
+    let pointerId = null;
+    let offset = 0;
+    handle.addEventListener("pointerdown", function(event) {
+        if (event.button !== 0 || pointerId !== null) return;
+        const bounds = viewerGrid.getBoundingClientRect();
+        const position = axis === "x" ? event.clientX - bounds.left : event.clientY - bounds.top;
+        const size = axis === "x" ? bounds.width : bounds.height;
+        offset = position - ((size - 8) * layout[axis] + 4);
+        pointerId = event.pointerId;
+        handle.setPointerCapture(pointerId);
+        handle.focus();
+        event.preventDefault();
+    });
+    handle.addEventListener("pointermove", function(event) {
+        if (event.pointerId !== pointerId) return;
+        const bounds = viewerGrid.getBoundingClientRect();
+        const size = axis === "x" ? bounds.width : bounds.height;
+        const position = axis === "x" ? event.clientX - bounds.left : event.clientY - bounds.top;
+        if (size > 8) setSplit(axis, (position - offset - 4) / (size - 8));
+    });
+    function endDrag(event) {
+        if (event.pointerId !== pointerId) return;
+        pointerId = null;
+        if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    }
+    handle.addEventListener("pointerup", endDrag);
+    handle.addEventListener("pointercancel", endDrag);
+    handle.addEventListener("lostpointercapture", () => { pointerId = null; });
+    handle.addEventListener("dblclick", () => setSplit(axis, 0.5));
+    handle.addEventListener("keydown", function(event) {
+        const decrease = axis === "x" ? "ArrowLeft" : "ArrowUp";
+        const increase = axis === "x" ? "ArrowRight" : "ArrowDown";
+        if (![decrease, increase, "Home"].includes(event.key)) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setSplit(axis, event.key === "Home" ? 0.5 : layout[axis] + (event.key === increase ? 0.02 : -0.02));
+    });
+    return handle;
+});
 
-/* -------------------------
-   Frame表示
-------------------------- */
+function setSplit(axis, value) {
+    layout[axis] = Math.max(0.2, Math.min(0.8, value));
+    updateLayout();
+}
+
+function updateLayout() {
+    viewerGrid.style.setProperty("--left", layout.x + "fr");
+    viewerGrid.style.setProperty("--right", (1 - layout.x) + "fr");
+    viewerGrid.style.setProperty("--top", layout.y + "fr");
+    viewerGrid.style.setProperty("--bottom", (1 - layout.y) + "fr");
+    splitters[0].style.left = "calc(" + layout.x * 100 + "% - " + layout.x * 8 + "px)";
+    splitters[1].style.top = "calc(" + layout.y * 100 + "% - " + layout.y * 8 + "px)";
+    splitters.forEach(function(handle, index) {
+        handle.hidden = Number(viewCount.value) < (index === 0 ? 2 : 3);
+        handle.setAttribute("aria-valuenow", Math.round(layout[index === 0 ? "x" : "y"] * 100));
+    });
+    document.getElementById("resetLayout").disabled = Number(viewCount.value) < 2;
+}
+
+document.getElementById("resetLayout").addEventListener("click", function() {
+    layout = { x: 0.5, y: 0.5 };
+    updateLayout();
+});
+updateLayout();
+
+const saveSessionButton = document.getElementById("saveSession");
+const loadSessionButton = document.getElementById("loadSession");
+const sessionInput = document.getElementById("sessionInput");
+const sessionStatus = document.getElementById("sessionStatus");
+let sessionBusy = false;
+
+function readImageData(file) {
+    return new Promise(function(resolve, reject) {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(new Error("画像を読み込めません: " + file.name));
+        reader.onabort = () => reject(new Error("画像の読み込みが中断されました。"));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function serializeSession() {
+    // 非同期の保存中に操作されても、開始時点の構成を保存する。
+    const session = {
+        format: "fem-frame-viewer", version: 1,
+        viewCount: Number(viewCount.value), fps: Number(fpsSelect.value),
+        step: totalSteps() ? currentFrame + 1 : 0,
+        loop: loopCheckbox.checked,
+        layout: { ...layout },
+        panels: panels.map(panel => ({ folder: panel.folder, images: [...panel.images] }))
+    };
+    for (const panel of session.panels) {
+        const images = [];
+        for (const file of panel.images) {
+            images.push({ name: file.name, type: file.type, data: await readImageData(file) });
+        }
+        panel.images = images;
+    }
+    return session;
+}
+
+function deserializeSession(session) {
+    const invalid = () => { throw new Error("対応する構成ファイルではないか、内容が破損しています。"); };
+    if (!session || session.format !== "fem-frame-viewer" || ![1, 2].includes(session.version) ||
+        (session.version === 2 && session.mode !== "embedded") ||
+        !Number.isInteger(session.viewCount) || session.viewCount < 1 || session.viewCount > 4 ||
+        ![1, 2, 5, 10, 20, 30, 60].includes(session.fps) ||
+        (session.loop !== undefined && typeof session.loop !== "boolean") ||
+        !Number.isInteger(session.step) || session.step < 0 ||
+        !Array.isArray(session.panels) || session.panels.length !== 4) invalid();
+    if (session.layout !== undefined && (!session.layout ||
+        ![session.layout.x, session.layout.y].every(value => Number.isFinite(value) && value >= 0.2 && value <= 0.8))) invalid();
+    const restored = session.panels.map(function(panel) {
+        if (!panel || typeof panel.folder !== "string" || !Array.isArray(panel.images)) invalid();
+        return {
+            folder: panel.folder,
+            images: panel.images.map(function(image) {
+                if (!image || typeof image.name !== "string" || !image.name ||
+                    typeof image.type !== "string" || !/^image\/[a-z0-9.+-]+$/i.test(image.type)) invalid();
+                if (typeof image.data !== "string") invalid();
+                const prefix = "data:" + image.type + ";base64,";
+                if (!image.data.startsWith(prefix)) invalid();
+                const binary = atob(image.data.slice(prefix.length));
+                const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+                return new File([bytes], image.name, { type: image.type });
+            })
+        };
+    });
+    const total = Math.max(0, ...restored.slice(0, session.viewCount).map(panel => panel.images.length));
+    if (total ? session.step < 1 || session.step > total : session.step !== 0) invalid();
+    return restored;
+}
+
+function restoreSession(session) {
+    // 全件の検証が終わるまで現在の構成を変更しない。
+    const restored = deserializeSession(session);
+    stop();
+    viewCount.value = String(session.viewCount);
+    fpsSelect.value = String(session.fps);
+    loopCheckbox.checked = session.loop === true;
+    layout = session.layout ? { ...session.layout } : { x: 0.5, y: 0.5 };
+    updateLayout();
+    viewerGrid.dataset.count = viewCount.value;
+    panels.forEach(function(panel, index) {
+        clearImage(panel);
+        panel.images = restored[index].images;
+        panel.folder = restored[index].folder;
+        panel.element.querySelector("input").value = "";
+        panel.element.hidden = index >= session.viewCount;
+        updateFileCount(panel);
+    });
+    updateTimeline();
+    if (session.step) showFrame(session.step - 1);
+}
+
+async function sessionOperation(message, operation) {
+    if (sessionBusy) return;
+    sessionBusy = true;
+    saveSessionButton.disabled = loadSessionButton.disabled = true;
+    sessionStatus.textContent = message;
+    try {
+        await operation();
+    } catch (error) {
+        sessionStatus.textContent = "処理に失敗しました: " + error.message;
+    } finally {
+        sessionBusy = false;
+        saveSessionButton.disabled = loadSessionButton.disabled = false;
+    }
+}
+
+saveSessionButton.addEventListener("click", function() {
+    sessionOperation("構成ファイルを作成中…", async function() {
+        const session = await serializeSession();
+        const blob = new Blob([JSON.stringify(session)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "fem-viewer-" + new Date().toISOString().replace(/[:.]/g, "-") + ".json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+        sessionStatus.textContent = "構成ファイルのダウンロードを開始しました（画像込み）。";
+    });
+});
+loadSessionButton.addEventListener("click", () => sessionInput.click());
+sessionInput.addEventListener("change", function() {
+    const file = sessionInput.files[0];
+    sessionInput.value = "";
+    if (!file) return;
+    sessionOperation("構成ファイルを読み込み中…", async function() {
+        const session = JSON.parse(await file.text());
+        restoreSession(session);
+        sessionStatus.textContent = "構成を復元しました。";
+    });
+});
+
+function activePanels() {
+    return panels.slice(0, Number(viewCount.value));
+}
+
+function totalSteps() {
+    return Math.max(0, ...activePanels().map(panel => panel.images.length));
+}
+
+function cancelPendingImage(panel) {
+    if (!panel.pending) return;
+    const pending = panel.pending;
+    panel.pending = null;
+    pending.image.removeAttribute("src");
+    URL.revokeObjectURL(pending.url);
+}
+
+function updateFileCount(panel, emptyText = "No images") {
+    const summary = panel.images.length ? panel.folder + " · " + panel.images.length + " images" : emptyText;
+    panel.count.textContent = summary + (panel.file ? " · " + panel.file.name : "");
+    panel.count.title = panel.count.textContent;
+}
+
+function clearImage(panel) {
+    cancelPendingImage(panel);
+    panel.image.onload = null;
+    panel.image.onerror = null;
+    panel.image.removeAttribute("src");
+    if (panel.url) URL.revokeObjectURL(panel.url);
+    panel.url = null;
+    panel.file = null;
+    panel.image.hidden = true;
+    updateFileCount(panel, panel.count.textContent || "No images");
+}
+
+function updateTimeline() {
+    const total = totalSteps();
+    slider.disabled = stepInput.disabled = total === 0;
+    slider.max = Math.max(0, total - 1);
+    stepInput.max = total;
+    totalFramesText.textContent = total;
+    document.querySelectorAll(".controls button").forEach(button => {
+        button.disabled = total === 0;
+    });
+    currentFrame = 0;
+    slider.value = 0;
+    stepInput.value = total ? 1 : 0;
+    stepInput.setCustomValidity("");
+    renderPanels();
+}
+
+function renderPanels() {
+    activePanels().forEach(function(panel) {
+        const file = panel.images[currentFrame];
+        if (file && panel.pending && panel.pending.file === file) return;
+        cancelPendingImage(panel);
+        if (file && panel.file === file) return;
+        if (!file) {
+            clearImage(panel);
+            panel.message.hidden = false;
+            panel.message.textContent = panel.images.length ? "この Step の画像はありません" : "画像フォルダを選択してください";
+            return;
+        }
+
+        // 表示中の画像を残し、次の画像のデコード完了後に要素ごと交換する。
+        const image = new Image();
+        const url = URL.createObjectURL(file);
+        const pending = { image, url, file };
+        panel.pending = pending;
+        panel.message.hidden = !panel.image.hidden;
+        panel.message.textContent = "読み込み中…";
+        image.alt = file.name;
+        image.src = url;
+        image.decode().then(function() {
+            // 高速な Step 操作やフォルダ変更で不要になった結果は反映しない。
+            if (panel.pending !== pending) return;
+            const previousUrl = panel.url;
+            panel.image.replaceWith(image);
+            panel.image = image;
+            panel.url = url;
+            panel.file = file;
+            updateFileCount(panel);
+            panel.pending = null;
+            panel.message.hidden = true;
+            if (previousUrl) URL.revokeObjectURL(previousUrl);
+        }).catch(function() {
+            if (panel.pending !== pending) return;
+            clearImage(panel);
+            panel.message.hidden = false;
+            panel.message.textContent = "画像を読み込めません: " + file.name;
+        });
+    });
+}
 
 function showFrame(index) {
-
-    if (
-        index < 0 ||
-        index >= images.length
-    ) {
-        return;
-    }
-
-
+    if (!Number.isInteger(index) || index < 0 || index >= totalSteps()) return;
     currentFrame = index;
-
     slider.value = index;
-
-
-    currentFrameText.textContent =
-        index + 1;
-
-
-    const file = images[index];
-
-
-    const url =
-        URL.createObjectURL(file);
-
-
-    frameImage.onload = function() {
-
-        URL.revokeObjectURL(url);
-
-    };
-
-
-    frameImage.src = url;
-
+    if (document.activeElement !== stepInput) stepInput.value = index + 1;
+    renderPanels();
 }
 
-
-/* -------------------------
-   Slider
-------------------------- */
-
-slider.addEventListener("input", function() {
-
-    showFrame(
-        Number(slider.value)
-    );
-
+viewCount.addEventListener("change", function() {
+    stop();
+    updateLayout();
+    viewerGrid.dataset.count = viewCount.value;
+    panels.forEach(function(panel, index) {
+        panel.element.hidden = index >= Number(viewCount.value);
+        if (panel.element.hidden) clearImage(panel);
+    });
+    updateTimeline();
 });
-
-
-/* -------------------------
-   Previous
-------------------------- */
-
-document
-.getElementById("prevButton")
-.addEventListener("click", function() {
-
-    showFrame(
-        currentFrame - 1
-    );
-
-});
-
-
-/* -------------------------
-   Next
-------------------------- */
-
-document
-.getElementById("nextButton")
-.addEventListener("click", function() {
-
-    showFrame(
-        currentFrame + 1
-    );
-
-});
-
-
-/* -------------------------
-   First
-------------------------- */
-
-document
-.getElementById("firstButton")
-.addEventListener("click", function() {
-
-    showFrame(0);
-
-});
-
-
-/* -------------------------
-   Last
-------------------------- */
-
-document
-.getElementById("lastButton")
-.addEventListener("click", function() {
-
-    showFrame(
-        images.length - 1
-    );
-
-});
-
-
-/* -------------------------
-   Play / Stop
-------------------------- */
-
-playButton.addEventListener("click", function() {
-
-    if (playing) {
-
-        stop();
-
-    } else {
-
-        play();
-
+slider.addEventListener("input", () => showFrame(Number(slider.value)));
+stepInput.addEventListener("focus", stop);
+stepInput.addEventListener("input", () => stepInput.setCustomValidity(""));
+stepInput.addEventListener("keydown", function(event) {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    const step = Number(stepInput.value);
+    if (!Number.isInteger(step) || step < 1 || step > totalSteps()) {
+        stepInput.setCustomValidity("1 から " + totalSteps() + " の整数を入力してください。");
+        stepInput.reportValidity();
+        return;
     }
-
+    stepInput.setCustomValidity("");
+    stop();
+    showFrame(step - 1);
+    stepInput.value = step;
 });
-
+stepInput.addEventListener("blur", function() {
+    stepInput.setCustomValidity("");
+    stepInput.value = totalSteps() ? currentFrame + 1 : 0;
+});
+document.getElementById("firstButton").addEventListener("click", () => showFrame(0));
+document.getElementById("prevButton").addEventListener("click", () => showFrame(currentFrame - 1));
+document.getElementById("nextButton").addEventListener("click", () => showFrame(currentFrame + 1));
+document.getElementById("lastButton").addEventListener("click", () => showFrame(totalSteps() - 1));
+playButton.addEventListener("click", () => playing ? stop() : play());
 
 function play() {
-
-    if (images.length === 0) {
-        return;
-    }
-
-
+    stop();
+    if (!totalSteps() || (!loopCheckbox.checked && currentFrame >= totalSteps() - 1)) return;
     playing = true;
-
-    playButton.textContent =
-        "■ Stop";
-
-
-    const fps =
-        Number(fpsSelect.value);
-
-
-    const interval =
-        1000 / fps;
-
-
+    playButton.textContent = "■ Stop";
     timer = setInterval(function() {
-
-        if (
-            currentFrame >=
-            images.length - 1
-        ) {
-
-            stop();
-
+        if (currentFrame >= totalSteps() - 1) {
+            if (loopCheckbox.checked) showFrame(0);
+            else stop();
             return;
-
         }
-
-
-        showFrame(
-            currentFrame + 1
-        );
-
-    }, interval);
-
+        showFrame(currentFrame + 1);
+        if (!loopCheckbox.checked && currentFrame >= totalSteps() - 1) stop();
+    }, 1000 / Number(fpsSelect.value));
 }
-
 
 function stop() {
-
     playing = false;
-
-    playButton.textContent =
-        "▶ Play";
-
-
+    playButton.textContent = "▶ Play";
     if (timer !== null) {
-
         clearInterval(timer);
-
         timer = null;
-
     }
-
 }
-
-
-/* -------------------------
-   FPS変更
-------------------------- */
-
 fpsSelect.addEventListener("change", function() {
-
-    // 再生中なら新しいFPSで再スタート
-    if (playing) {
-
-        stop();
-
-        play();
-
-    }
-
+    if (playing) play();
 });
-
-
-/* -------------------------
-   キーボード操作
-------------------------- */
-
 document.addEventListener("keydown", function(event) {
-
-    if (images.length === 0) {
-        return;
-    }
-
-
-    if (event.key === "ArrowLeft") {
-
-        showFrame(
-            currentFrame - 1
-        );
-
-    }
-
-
-    if (event.key === "ArrowRight") {
-
-        showFrame(
-            currentFrame + 1
-        );
-
-    }
-
-
-    if (event.key === " ") {
-
-        event.preventDefault();
-
-        if (playing) {
-
-            stop();
-
-        } else {
-
-            play();
-
-        }
-
-    }
-
+    if (!totalSteps() || event.target.closest("input, select, button, textarea, [contenteditable], [role=separator]")) return;
+    if (["ArrowLeft", "ArrowRight", " "].includes(event.key)) event.preventDefault();
+    if (event.key === "ArrowLeft") showFrame(currentFrame - 1);
+    if (event.key === "ArrowRight") showFrame(currentFrame + 1);
+    if (event.key === " " && !event.repeat) playing ? stop() : play();
 });
-
+window.addEventListener("pagehide", function() {
+    stop();
+    panels.forEach(clearImage);
+});
+window.addEventListener("pageshow", renderPanels);
+updateTimeline();
 </script>
-
 </body>
 </html>
