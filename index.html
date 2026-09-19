@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>FEM Frame Viewer</title>
+
+<style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #202124;
+        color: #eeeeee;
+    }
+
+    .app {
+        width: 90%;
+        max-width: 1100px;
+        margin: 20px auto;
+    }
+
+    h1 {
+        font-size: 24px;
+        margin-bottom: 15px;
+    }
+
+    .toolbar {
+        display: flex;
+        align-items: center;
+        gap: 15px;
+        margin-bottom: 15px;
+    }
+
+    .viewer {
+        height: 600px;
+        background: #111111;
+        border: 1px solid #555555;
+
+        display: flex;
+        align-items: center;
+        justify-content: center;
+
+        overflow: hidden;
+    }
+
+    .viewer img {
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+    }
+
+    .frame-info {
+        text-align: center;
+        margin: 15px 0 5px;
+        font-size: 18px;
+    }
+
+    #slider {
+        width: 100%;
+    }
+
+    .controls {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 10px;
+        margin-top: 15px;
+    }
+
+    button {
+        padding: 8px 18px;
+        font-size: 16px;
+        cursor: pointer;
+    }
+
+    select {
+        padding: 7px;
+        font-size: 15px;
+    }
+
+    .file-count {
+        color: #aaaaaa;
+    }
+</style>
+</head>
+
+<body>
+
+<div class="app">
+
+    <h1>FEM Frame Viewer</h1>
+
+    <div class="toolbar">
+
+        <label>
+            画像フォルダ：
+            <input
+                type="file"
+                id="folderInput"
+                webkitdirectory
+                multiple
+            >
+        </label>
+
+        <span id="fileCount" class="file-count">
+            No images
+        </span>
+
+    </div>
+
+
+    <div class="viewer">
+        <img id="frameImage" alt="画像を選択してください">
+    </div>
+
+
+    <div class="frame-info">
+        Frame
+        <span id="currentFrame">0</span>
+        /
+        <span id="totalFrames">0</span>
+    </div>
+
+
+    <input
+        type="range"
+        id="slider"
+        min="0"
+        max="0"
+        value="0"
+        disabled
+    >
+
+
+    <div class="controls">
+
+        <button id="firstButton">|◀</button>
+
+        <button id="prevButton">◀</button>
+
+        <button id="playButton">▶ Play</button>
+
+        <button id="nextButton">▶</button>
+
+        <button id="lastButton">▶|</button>
+
+
+        <label>
+            Speed:
+            <select id="fpsSelect">
+                <option value="1">1 FPS</option>
+                <option value="2">2 FPS</option>
+                <option value="5">5 FPS</option>
+                <option value="10" selected>10 FPS</option>
+                <option value="20">20 FPS</option>
+                <option value="30">30 FPS</option>
+            </select>
+        </label>
+
+    </div>
+
+</div>
+
+
+<script>
+
+const folderInput = document.getElementById("folderInput");
+const frameImage = document.getElementById("frameImage");
+const slider = document.getElementById("slider");
+
+const currentFrameText =
+    document.getElementById("currentFrame");
+
+const totalFramesText =
+    document.getElementById("totalFrames");
+
+const fileCount =
+    document.getElementById("fileCount");
+
+const playButton =
+    document.getElementById("playButton");
+
+const fpsSelect =
+    document.getElementById("fpsSelect");
+
+
+let images = [];
+
+let currentFrame = 0;
+
+let playing = false;
+
+let timer = null;
+
+
+/* -------------------------
+   フォルダ読み込み
+------------------------- */
+
+folderInput.addEventListener("change", function(event) {
+
+    stop();
+
+    // 画像ファイルのみ取得
+    images = Array.from(event.target.files)
+        .filter(file =>
+            file.type.startsWith("image/")
+        );
+
+
+    // ファイル名を自然順でソート
+    images.sort((a, b) =>
+        a.name.localeCompare(
+            b.name,
+            undefined,
+            {
+                numeric: true,
+                sensitivity: "base"
+            }
+        )
+    );
+
+
+    if (images.length === 0) {
+
+        fileCount.textContent =
+            "画像が見つかりません";
+
+        return;
+    }
+
+
+    currentFrame = 0;
+
+
+    slider.disabled = false;
+
+    slider.min = 0;
+
+    slider.max = images.length - 1;
+
+    slider.value = 0;
+
+
+    totalFramesText.textContent =
+        images.length;
+
+    fileCount.textContent =
+        images.length + " images";
+
+
+    showFrame(0);
+
+});
+
+
+/* -------------------------
+   Frame表示
+------------------------- */
+
+function showFrame(index) {
+
+    if (
+        index < 0 ||
+        index >= images.length
+    ) {
+        return;
+    }
+
+
+    currentFrame = index;
+
+    slider.value = index;
+
+
+    currentFrameText.textContent =
+        index + 1;
+
+
+    const file = images[index];
+
+
+    const url =
+        URL.createObjectURL(file);
+
+
+    frameImage.onload = function() {
+
+        URL.revokeObjectURL(url);
+
+    };
+
+
+    frameImage.src = url;
+
+}
+
+
+/* -------------------------
+   Slider
+------------------------- */
+
+slider.addEventListener("input", function() {
+
+    showFrame(
+        Number(slider.value)
+    );
+
+});
+
+
+/* -------------------------
+   Previous
+------------------------- */
+
+document
+.getElementById("prevButton")
+.addEventListener("click", function() {
+
+    showFrame(
+        currentFrame - 1
+    );
+
+});
+
+
+/* -------------------------
+   Next
+------------------------- */
+
+document
+.getElementById("nextButton")
+.addEventListener("click", function() {
+
+    showFrame(
+        currentFrame + 1
+    );
+
+});
+
+
+/* -------------------------
+   First
+------------------------- */
+
+document
+.getElementById("firstButton")
+.addEventListener("click", function() {
+
+    showFrame(0);
+
+});
+
+
+/* -------------------------
+   Last
+------------------------- */
+
+document
+.getElementById("lastButton")
+.addEventListener("click", function() {
+
+    showFrame(
+        images.length - 1
+    );
+
+});
+
+
+/* -------------------------
+   Play / Stop
+------------------------- */
+
+playButton.addEventListener("click", function() {
+
+    if (playing) {
+
+        stop();
+
+    } else {
+
+        play();
+
+    }
+
+});
+
+
+function play() {
+
+    if (images.length === 0) {
+        return;
+    }
+
+
+    playing = true;
+
+    playButton.textContent =
+        "■ Stop";
+
+
+    const fps =
+        Number(fpsSelect.value);
+
+
+    const interval =
+        1000 / fps;
+
+
+    timer = setInterval(function() {
+
+        if (
+            currentFrame >=
+            images.length - 1
+        ) {
+
+            stop();
+
+            return;
+
+        }
+
+
+        showFrame(
+            currentFrame + 1
+        );
+
+    }, interval);
+
+}
+
+
+function stop() {
+
+    playing = false;
+
+    playButton.textContent =
+        "▶ Play";
+
+
+    if (timer !== null) {
+
+        clearInterval(timer);
+
+        timer = null;
+
+    }
+
+}
+
+
+/* -------------------------
+   FPS変更
+------------------------- */
+
+fpsSelect.addEventListener("change", function() {
+
+    // 再生中なら新しいFPSで再スタート
+    if (playing) {
+
+        stop();
+
+        play();
+
+    }
+
+});
+
+
+/* -------------------------
+   キーボード操作
+------------------------- */
+
+document.addEventListener("keydown", function(event) {
+
+    if (images.length === 0) {
+        return;
+    }
+
+
+    if (event.key === "ArrowLeft") {
+
+        showFrame(
+            currentFrame - 1
+        );
+
+    }
+
+
+    if (event.key === "ArrowRight") {
+
+        showFrame(
+            currentFrame + 1
+        );
+
+    }
+
+
+    if (event.key === " ") {
+
+        event.preventDefault();
+
+        if (playing) {
+
+            stop();
+
+        } else {
+
+            play();
+
+        }
+
+    }
+
+});
+
+</script>
+
+</body>
+</html>
