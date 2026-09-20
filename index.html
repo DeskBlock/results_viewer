@@ -144,6 +144,8 @@ const panels = Array.from({ length: 4 }, function(_, index) {
         images: [],
         file: null,
         url: null,
+        cache: new Map(),
+        wanted: [],
         pending: null
     };
     element.querySelector("input").addEventListener("change", function(event) {
@@ -381,12 +383,64 @@ function totalSteps() {
     return Math.max(0, ...activePanels().map(panel => panel.images.length));
 }
 
-function cancelPendingImage(panel) {
-    if (!panel.pending) return;
-    const pending = panel.pending;
-    panel.pending = null;
-    pending.image.removeAttribute("src");
-    URL.revokeObjectURL(pending.url);
+// 各枠で現在・直前・3 Step先を保持。切替待ちの表示画像を含め最大6枚。
+const CACHE_LIMIT = 6;
+const CACHE_BYTES = 64 * 1024 * 1024;
+
+function releaseEntry(panel, file) {
+    const entry = panel.cache.get(file);
+    if (!entry) return;
+    panel.cache.delete(file);
+    entry.image.removeAttribute("src");
+    URL.revokeObjectURL(entry.url);
+}
+
+function trimCache(panel) {
+    for (const [file] of panel.cache) {
+        if (file !== panel.file && !panel.wanted.includes(file)) releaseEntry(panel, file);
+    }
+    let bytes = Array.from(panel.cache.values()).reduce((sum, entry) => sum + entry.bytes, 0);
+    for (const [file, entry] of Array.from(panel.cache).reverse()) {
+        if (panel.cache.size <= CACHE_LIMIT && bytes <= CACHE_BYTES) break;
+        // 表示中・表示要求中の画像は、単体で上限を超えても保持する。
+        if (file === panel.file || file === panel.wanted[0]) continue;
+        bytes -= entry.bytes;
+        releaseEntry(panel, file);
+    }
+}
+
+function cacheImage(panel, file) {
+    if (panel.cache.has(file)) return panel.cache.get(file);
+    const image = new Image();
+    const entry = { image, file, url: URL.createObjectURL(file), bytes: 0, ready: false, failed: false };
+    panel.cache.set(file, entry);
+    image.alt = file.name;
+    image.src = entry.url;
+    entry.promise = image.decode().then(function() {
+        if (panel.cache.get(file) !== entry) return;
+        entry.ready = true;
+        entry.bytes = image.naturalWidth * image.naturalHeight * 4;
+        trimCache(panel);
+    }).catch(function() {
+        if (panel.cache.get(file) !== entry) return;
+        entry.failed = true;
+    });
+    return entry;
+}
+
+function prefetch(panel) {
+    trimCache(panel);
+    if (Array.from(panel.cache.values()).some(entry => !entry.ready && !entry.failed)) return;
+    const bytes = Array.from(panel.cache.values()).reduce((sum, entry) => sum + entry.bytes, 0);
+    const estimate = panel.cache.get(panel.wanted[0])?.bytes || 0;
+    if (panel.cache.size >= CACHE_LIMIT || bytes + estimate > CACHE_BYTES) return;
+    const file = panel.wanted.find(file => !panel.cache.has(file));
+    if (!file) return;
+    const entry = cacheImage(panel, file);
+    entry.promise.then(function() {
+        // 破棄済みの先読みから処理を再開しない。
+        if (panel.cache.get(file) === entry) prefetch(panel);
+    });
 }
 
 function updateFileCount(panel, emptyText = "No images") {
@@ -396,11 +450,12 @@ function updateFileCount(panel, emptyText = "No images") {
 }
 
 function clearImage(panel) {
-    cancelPendingImage(panel);
+    panel.pending = null;
+    panel.wanted = [];
+    for (const [file] of panel.cache) releaseEntry(panel, file);
     panel.image.onload = null;
     panel.image.onerror = null;
     panel.image.removeAttribute("src");
-    if (panel.url) URL.revokeObjectURL(panel.url);
     panel.url = null;
     panel.file = null;
     panel.image.hidden = true;
@@ -424,45 +479,53 @@ function updateTimeline() {
 }
 
 function renderPanels() {
+    const total = totalSteps();
     activePanels().forEach(function(panel) {
         const file = panel.images[currentFrame];
-        if (file && panel.pending && panel.pending.file === file) return;
-        cancelPendingImage(panel);
-        if (file && panel.file === file) return;
         if (!file) {
             clearImage(panel);
             panel.message.hidden = false;
             panel.message.textContent = panel.images.length ? "この Step の画像はありません" : "画像フォルダを選択してください";
             return;
         }
-
-        // 表示中の画像を残し、次の画像のデコード完了後に要素ごと交換する。
-        const image = new Image();
-        const url = URL.createObjectURL(file);
-        const pending = { image, url, file };
-        panel.pending = pending;
+        panel.wanted = [0, 1, 2, 3, -1].map(function(offset) {
+            const index = currentFrame + offset;
+            return panel.images[loopCheckbox.checked ? (index + total) % total : index];
+        }).filter((file, index, files) => file && files.indexOf(file) === index);
+        trimCache(panel);
+        if (panel.file === file) {
+            panel.pending = null;
+            prefetch(panel);
+            return;
+        }
+        const entry = cacheImage(panel, file);
+        if (panel.pending === entry) return;
+        panel.pending = entry;
         panel.message.hidden = !panel.image.hidden;
         panel.message.textContent = "読み込み中…";
-        image.alt = file.name;
-        image.src = url;
-        image.decode().then(function() {
-            // 高速な Step 操作やフォルダ変更で不要になった結果は反映しない。
-            if (panel.pending !== pending) return;
-            const previousUrl = panel.url;
-            panel.image.replaceWith(image);
-            panel.image = image;
-            panel.url = url;
-            panel.file = file;
-            updateFileCount(panel);
+        function display() {
+            if (panel.pending !== entry || panel.cache.get(file) !== entry) return;
             panel.pending = null;
-            panel.message.hidden = true;
-            if (previousUrl) URL.revokeObjectURL(previousUrl);
-        }).catch(function() {
-            if (panel.pending !== pending) return;
-            clearImage(panel);
-            panel.message.hidden = false;
-            panel.message.textContent = "画像を読み込めません: " + file.name;
-        });
+            if (entry.failed) {
+                // 失敗したStepも処理済みとして扱い、再生を継続できるようにする。
+                panel.image.hidden = true;
+                panel.file = null;
+                panel.message.hidden = false;
+                panel.message.textContent = "画像を読み込めません: " + file.name;
+                updateFileCount(panel);
+            } else {
+                panel.image.replaceWith(entry.image);
+                panel.image = entry.image;
+                panel.image.hidden = false;
+                panel.url = entry.url;
+                panel.file = file;
+                panel.message.hidden = true;
+                updateFileCount(panel);
+            }
+            prefetch(panel);
+        }
+        if (entry.ready || entry.failed) display();
+        else entry.promise.then(display);
     });
 }
 
@@ -517,6 +580,7 @@ function play() {
     playing = true;
     playButton.textContent = "■ Stop";
     timer = setInterval(function() {
+        if (activePanels().some(panel => panel.pending)) return;
         if (currentFrame >= totalSteps() - 1) {
             if (loopCheckbox.checked) showFrame(0);
             else stop();
@@ -535,6 +599,7 @@ function stop() {
         timer = null;
     }
 }
+loopCheckbox.addEventListener("change", renderPanels);
 fpsSelect.addEventListener("change", function() {
     if (playing) play();
 });
